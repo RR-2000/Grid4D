@@ -57,6 +57,9 @@ class ModelParams(ParamGroup):
         self.data_device = "cuda"
         self.eval = True
         self.load2gpu_on_the_fly = False
+        self.start_t = 0
+        self.num_t = 1
+        self.load_image_on_the_fly = False
 
         self.grid_args = dict(
             canonical_num_levels=16,

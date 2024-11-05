@@ -19,6 +19,9 @@ from utils.graphics_utils import getWorld2View2, focal2fov, fov2focal
 import numpy as np
 import json
 import imageio
+import tempfile
+import trimesh
+import uuid
 from glob import glob
 import cv2 as cv
 from pathlib import Path
@@ -27,6 +30,7 @@ from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
 from utils.camera_utils import camera_nerfies_from_JSON
 from tqdm import tqdm
+from utils.camera_utils_multinerf import generate_interpolated_path
 
 
 class CameraInfo(NamedTuple):
@@ -42,12 +46,16 @@ class CameraInfo(NamedTuple):
     height: int
     fid: float
     depth: Optional[np.array] = None
+    mask: Optional[np.array] = None
+    K: Optional[np.array] = None
+    white_background: Optional[bool] = False
 
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
     train_cameras: list
     test_cameras: list
+    video_cameras: list
     nerf_normalization: dict
     ply_path: str
 
@@ -619,10 +627,196 @@ def readPlenopticVideoDataset(datadir, eval, num_images, hold_id=[0]):
     return scene_info
 
 
+
+def readBrics(datadir, split, start_t: int = 0, num_t: int = 1, downsample: int = 1, white_background: bool = True, opencv_camera=True, load_image_on_the_fly = False):
+    # per_cam_poses, intrinsics, cam_ids = load_brics_poses(datadir, downsample=downsample, split=split, opencv_camera=True)
+    assert split in ['train', 'test', 'org']
+
+    # load meta data
+    with open(os.path.join(datadir, f"transforms_{split}.json"), 'r') as fp:
+        meta = json.load(fp)
+    frames = meta['frames']
+    w, h = int(frames[0]['w']), int(frames[0]['h'])
+
+    # load intrinsics
+    intrinsics = Intrinsics(w, h, frames[0]['fl_x'], frames[0]['fl_y'], frames[0]['cx'], frames[0]['cy'], [], [], [], [] )
+    for i in range(0, len(frames)):
+        intrinsics.append(frames[i]['fl_x'], frames[i]['fl_y'], frames[i]['cx'], frames[i]['cy'])
+    intrinsics.scale(1/downsample)
+
+    # load poses
+    cam_ids, poses = [], []
+    for i in list(range(0, len(frames))):
+        pose = np.array(frames[i]['transform_matrix'])
+        if opencv_camera: # change from OpenGL/Blender camera axes (Y up, Z back) to COLMAP (Y down, Z forward)
+            pose[:3, 1:3] *= -1
+        poses.append(pose)
+        cam_ids.append(frames[i]['file_path'].split('/')[-2])
+    per_cam_poses = np.stack(poses)
+
+    # load images and parse cameras
+    cam_infos = []
+    camera_dict = {}
+    uid = 0
+    for cam_idx in range(len(cam_ids)):
+        cam_name = cam_ids[cam_idx]
+        for j in tqdm(range(start_t, start_t+num_t), desc=f'Loading {split} data ({cam_idx}/{len(cam_ids)})'):
+            img_path = os.path.join(datadir, "frames_1", cam_name,  f"{j:08d}.png")
+            # per_cam_imgs.append(img_path)
+            timestamp = j-start_t
+            image_name = os.path.join(cam_name, f"{j:08d}") #Path(os.path.join(f"{cam_name}_{j:06d}").stem
+
+            # load image and mask
+            image, mask = load_img(img_path, downsample = downsample, white_background = white_background)
+            
+            # prep camera parameters
+            # cam_idx = idx
+            FovY = focal2fov(intrinsics.focal_ys[cam_idx], intrinsics.height)
+            FovX = focal2fov(intrinsics.focal_xs[cam_idx], intrinsics.width)
+            w2c = np.linalg.inv(np.array(per_cam_poses[cam_idx]))
+            R, T = np.transpose(w2c[:3, :3]), w2c[:3, 3]
+
+            K = np.array([[
+                intrinsics.focal_xs[cam_idx], 0, intrinsics.center_xs[cam_idx]],
+                [0, intrinsics.focal_ys[cam_idx], intrinsics.center_ys[cam_idx]],
+                [0, 0, 1]]
+            )
+            cam_info = CameraInfo(uid=uid, fid=timestamp/float(num_t), R=R, T=T, FovY=FovY, FovX=FovX, K=K,
+                image = image if not load_image_on_the_fly else None, mask = mask if not load_image_on_the_fly else None, 
+                image_path=img_path, image_name=image_name, 
+                width=image.size[0], height=image.size[1], white_background = white_background)
+            uid += 1
+            if timestamp == 0:
+                camera_dict[cam_name] = cam_info # needed for video camera
+            cam_infos.append(cam_info)
+    return cam_infos, camera_dict
+
+def readBricsSceneInfo(path, num_pts=200_000, white_background=True, start_t=0, num_t=1, init='hull', create_video_cams=True, load_image_on_the_fly = False):
+    print("Reading Brics Info")
+    train_cam_infos, train_camera_dict = readBrics(path, split='train', white_background=white_background, start_t=start_t, num_t=num_t, load_image_on_the_fly = load_image_on_the_fly)
+    test_cam_infos, _ = readBrics(path, split='test', white_background=white_background, start_t=start_t, num_t=num_t, load_image_on_the_fly = load_image_on_the_fly)
+
+    # init points
+    if init == 'hull':
+        first_frame_cameras = [_cam for _cam in train_cam_infos if int(_cam.time*num_t)%100 == 0]
+        aabb = -3.0, 3.0
+        grid_resolution = 128
+        grid = np.linspace(aabb[0], aabb[1], grid_resolution)
+        grid = np.meshgrid(grid, grid, grid)
+        grid_loc = np.stack(grid, axis=-1).reshape(-1, 3) # n_pts, 3
+
+        # project grid locations to the image plane
+        grid = torch.from_numpy(np.concatenate([grid_loc, np.ones_like(grid_loc[:, :1])], axis=-1)).float() # n_pts, 4
+        # grid_mask = np.ones_like(grid_loc[:, 0], dtype=bool)
+        grid_counter = np.ones_like(grid_loc[:, 0], dtype=int)
+        zfar = 100.0
+        znear = 0.01
+        trans=np.array([0.0, 0.0, 0.0])
+        scale=1.0
+        for cam in first_frame_cameras:
+            world_view_transform = torch.tensor(getWorld2View2(cam.R, cam.T, trans, scale)).transpose(0, 1)
+
+            if not load_image_on_the_fly:
+                H, W = cam.image.size[1], cam.image.size[0]
+            else:
+                img, mask = load_img(cam.image_path, white_background = white_background)
+                H, W = img.size[1], img.size[0]
+
+            projection_matrix =  getProjectionMatrix(znear=znear, zfar=zfar, fovX=cam.FovX, fovY=cam.FovY, K=cam.K, img_h=H, img_w=W).transpose(0, 1)
+            full_proj_transform = (world_view_transform.unsqueeze(0).bmm(projection_matrix.unsqueeze(0))).squeeze(0)
+            # xyzh = torch.from_numpy(np.concatenate([xyz, np.ones((xyz.shape[0], 1))], axis=1)).float()
+            cam_xyz = grid @ full_proj_transform # (full_proj_transform @ xyzh.T).T
+            uv = cam_xyz[:, :2] / cam_xyz[:, 2:3] # xy coords
+            # H, W = cam.image.size[1], cam.image.size[0]
+            uv = ndc2Pix(uv, np.array([W, H]))
+            uv = np.round(uv.numpy()).astype(int)
+
+            valid_inds = (uv[:, 0] >= 0) & (uv[:, 0] < W) & (uv[:, 1] >= 0) & (uv[:, 1] < H) 
+            # _pix_mask = (uv[:, 0] >= 0) & (uv[:, 0] < W) & (uv[:, 1] >= 0) & (uv[:, 1] < H)
+            if not load_image_on_the_fly:
+                cam_mask = np.array(cam.mask) # H,W,1
+            else:
+                cam_mask = np.array(mask) # H,W,1
+            # _pix_mask[_pix_mask] = cam_mask[uv[valid_inds][:, 1], uv[valid_inds][:, 0]].reshape(-1) > 0
+
+            _m = cam_mask[uv[valid_inds][:, 1], uv[valid_inds][:, 0]].reshape(-1) > 0
+            # grid_mask[valid_inds] = grid_mask[valid_inds] & _m
+            grid_counter[valid_inds] = grid_counter[valid_inds] + _m
+            print('grid_counter=', np.mean(grid_counter))
+
+            if True:
+                cam_img = np.array(cam.image if not load_image_on_the_fly else img).copy()
+                red_uv = uv[valid_inds][_m > 0]
+                cam_img[red_uv[:, 1], red_uv[:, 0]] = np.array([255, 0, 0])
+                # save cam_img
+                imageio.imsave(f'./cam_img.png', cam_img)
+                # breakpoint()
+
+        grid_mask = grid_counter > 15 # at least 10 cameras should see the point
+        xyz = grid[:, :3].numpy()[grid_mask]
+        colors = np.random.random((xyz.shape[0], 3)) / 255.0
+        pcd = BasicPointCloud(points=xyz, colors=colors, normals=np.zeros_like(xyz))
+        ply_path = os.path.join(tempfile._get_default_tempdir(), f"{next(tempfile._get_candidate_names())}_{str(uuid.uuid4())}.ply") #os.path.join(path, "points3d.ply")
+
+    else:
+        raise NotImplementedError
+
+    # sub sample points if needed
+    if xyz.shape[0] > num_pts:
+        xyz = xyz[np.random.choice(xyz.shape[0], num_pts, replace=False)]
+    colors = np.random.random((xyz.shape[0], 3)) / 255.0
+    pcd = BasicPointCloud(points=xyz, colors=colors, normals=np.zeros_like(xyz))
+    storePly(ply_path, xyz, colors)
+
+    # create visualization cameras
+    video_cameras = []
+    if create_video_cams:
+        vis_C2W = []
+        vis_cam_order = ['cam01', 'cam04', 'cam09', 'cam15', 'cam23', 'cam28', 'cam32', 'cam34', 'cam35', 'cam36', 'cam37'] + ['cam01', 'cam04']
+        cam_id_order = [train_camera_dict[vis_cam_id] for vis_cam_id in vis_cam_order]
+        for cam in cam_id_order:
+            Rt = np.eye(4)
+            Rt[:3, :3] = cam.R
+            Rt[:3, 3] = cam.T
+            vis_C2W.append(np.linalg.inv(Rt))
+        vis_C2W = np.stack(vis_C2W)[:, :3, :4]
+        # interpolate between cameras
+        visualization_poses = generate_interpolated_path(vis_C2W, 50, spline_degree=3, smoothness=0.0, rot_weight=0.01)
+        video_cam_centers = []
+        # timesteps = list(range(start_t, start_t+num_t))
+        timesteps = list(range(0, num_t))
+        timesteps_rev = timesteps + timesteps[::-1]
+        for _idx, _pose in enumerate(visualization_poses):
+            Rt = np.eye(4)
+            Rt[:3, :4] = _pose[:3, :4]
+            Rt = np.linalg.inv(Rt)
+            R = Rt[:3, :3]
+            T = Rt[:3, 3]
+            video_cameras.append(CameraInfo(
+                    uid=_idx,
+                    fid=timesteps_rev[_idx % len(timesteps_rev)]/float(num_t), # iterate over the time cameras
+                    R=R, T=T,
+                    FovY=train_cam_infos[0].FovY, FovX=train_cam_infos[0].FovX,
+                    image=None, image_path=None, image_name=f"{_idx:05}", 
+                    width=train_cam_infos[0].width, height=train_cam_infos[0].height, white_background = white_background
+                    # width=train_cam_infos[0].image.size[0], height=train_cam_infos[0].image.size[1],
+            ))
+            video_cam_centers.append(_pose[:3, 3])
+
+    scene_info = SceneInfo(point_cloud=pcd,
+                           train_cameras=train_cam_infos,
+                           test_cameras=test_cam_infos,
+                           video_cameras=video_cameras,
+                           nerf_normalization=getNerfppNorm(train_cam_infos),
+                           ply_path=ply_path
+                           )
+    return scene_info
+
 sceneLoadTypeCallbacks = {
     "Colmap": readColmapSceneInfo,  # colmap dataset reader from official 3D Gaussian [https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/]
     "Blender": readNerfSyntheticInfo,  # D-NeRF dataset [https://drive.google.com/file/d/1uHVyApwqugXTFuIRRlE4abTW8_rrVeIK/view?usp=sharing]
     "DTU": readNeuSDTUInfo,  # DTU dataset used in Tensor4D [https://github.com/DSaurus/Tensor4D]
     "nerfies": readNerfiesInfo,  # NeRFies & HyperNeRF dataset proposed by [https://github.com/google/hypernerf/releases/tag/v0.1]
     "plenopticVideo": readPlenopticVideoDataset,  # Neural 3D dataset in [https://github.com/facebookresearch/Neural_3D_Video]
+    "Brics": readBricsSceneInfo,
 }

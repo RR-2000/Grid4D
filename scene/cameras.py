@@ -17,7 +17,8 @@ from utils.graphics_utils import getWorld2View2, getProjectionMatrix
 
 class Camera(nn.Module):
     def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask, image_name, uid,
-                 trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device="cuda", fid=None, depth=None):
+                 trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device="cuda", fid=None, depth=None,
+                 mask = None, K=None, image_width = None, image_height = None):
         super(Camera, self).__init__()
 
         self.uid = uid
@@ -27,6 +28,7 @@ class Camera(nn.Module):
         self.FoVx = FoVx
         self.FoVy = FoVy
         self.image_name = image_name
+        self.K = K
 
         try:
             self.data_device = torch.device(data_device)
@@ -35,17 +37,34 @@ class Camera(nn.Module):
             print(f"[Warning] Custom device {data_device} failed, fallback to default cuda device")
             self.data_device = torch.device("cuda")
 
-        self.original_image = image.clamp(0.0, 1.0).to(self.data_device)
+        # self.original_image = image.clamp(0.0, 1.0).to(self.data_device)
         self.fid = torch.Tensor(np.array([fid])).to(self.data_device)
-        self.image_width = self.original_image.shape[2]
-        self.image_height = self.original_image.shape[1]
+        # self.image_width = self.original_image.shape[2]
+        # self.image_height = self.original_image.shape[1]
         self.depth = torch.Tensor(depth).to(self.data_device) if depth is not None else None
 
-        if gt_alpha_mask is not None:
-            self.original_image *= gt_alpha_mask.to(self.data_device)
-        else:
-            self.original_image *= torch.ones((1, self.image_height, self.image_width), device=self.data_device)
+        if self.K is not None:
+            self.K = torch.tensor(self.K).float().to(self.data_device)
 
+        if image is not None:
+            self.original_image = image.clamp(0.0, 1.0)[:3,:,:].to(self.data_device)
+
+            self.image_width = self.original_image.shape[2]
+            self.image_height = self.original_image.shape[1]
+        else:
+            self.original_image = None
+
+            self.image_width = image_width
+            self.image_height = image_height
+
+        if self.original_image is not None:
+
+            if gt_alpha_mask is not None:
+                self.original_image *= gt_alpha_mask.to(self.data_device)
+                # .to(self.data_device)
+            else:
+                self.original_image *= torch.ones((1, self.image_height, self.image_width)).to(self.data_device)
+                                                    #   , device=self.data_device)
         self.zfar = 100.0
         self.znear = 0.01
 
