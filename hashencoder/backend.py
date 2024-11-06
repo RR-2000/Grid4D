@@ -12,6 +12,7 @@ _backend = load(name='_hash_encoder',
                 extra_cuda_cflags=[
                     '-O3', '-std=c++14', '-allow-unsupported-compiler',
                     '-U__CUDA_NO_HALF_OPERATORS__', '-U__CUDA_NO_HALF_CONVERSIONS__', '-U__CUDA_NO_HALF2_OPERATORS__',
+                    'arch=compute_75,code=sm_75',
                 ],
                 sources=[os.path.join(_src_path, 'src', f) for f in [
                     'hashencoder.cu',
