@@ -99,20 +99,20 @@ class Scene:
         print("Point bound:", np.max(scene_info.point_cloud.points, axis=0), "<->", np.min(scene_info.point_cloud.points, axis=0))
 
         for resolution_scale in resolution_scales:
+            # print("Loading Training Cameras")
+            # self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale,
+            #                                                                 args)
+            # print("Loading Test Cameras")
+            # self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale,
+            #                                                                args)
             print("Loading Training Cameras")
-            self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale,
+            self.train_cameras[resolution_scale] = FourDGSdataset(scene_info.train_cameras, args, dataset_type, resolution_scale) if args.load_image_on_the_fly else ameraList_from_camInfos(scene_info.train_cameras, resolution_scale,
                                                                             args)
             print("Loading Test Cameras")
-            self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale,
-                                                                           args)
-            print("Loading Training Cameras")
-            self.train_camera[resolution_scale] = FourDGSdataset(scene_info.train_cameras, args, dataset_type, resolution_scale) if args.load_image_on_the_fly else ameraList_from_camInfos(scene_info.train_cameras, resolution_scale,
-                                                                            args)
-            print("Loading Test Cameras")
-            self.test_camera[resolution_scale] = FourDGSdataset(scene_info.test_cameras, args, dataset_type, resolution_scale) if args.load_image_on_the_fly else ameraList_from_camInfos(scene_info.test_cameras, resolution_scale,
+            self.test_cameras[resolution_scale] = FourDGSdataset(scene_info.test_cameras, args, dataset_type, resolution_scale) if args.load_image_on_the_fly else ameraList_from_camInfos(scene_info.test_cameras, resolution_scale,
                                                                            args)
             print("Loading Video Cameras")
-            self.video_camera[resolution_scale] = FourDGSdataset(scene_info.video_cameras, args, dataset_type, resolution_scale) if args.load_image_on_the_fly else ameraList_from_camInfos(scene_info.video_cameras, resolution_scale,
+            self.video_cameras[resolution_scale] = FourDGSdataset(scene_info.video_cameras, args, dataset_type, resolution_scale) if args.load_image_on_the_fly else ameraList_from_camInfos(scene_info.video_cameras, resolution_scale,
                                                                            args)
 
         if self.loaded_iter:
@@ -142,4 +142,4 @@ class Scene:
         return self.test_cameras[scale]
 
     def getVideoCameras(self, scale=1.0):
-        return self.video_camera[scale]
+        return self.video_cameras[scale]

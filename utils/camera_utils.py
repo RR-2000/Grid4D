@@ -13,6 +13,7 @@ from scene.cameras import Camera
 import numpy as np
 from utils.general_utils import PILtoTorch, ArrayToTorch
 from utils.graphics_utils import fov2focal
+from utils.image_utils import load_img
 import json
 
 import os
@@ -72,7 +73,7 @@ def loadCam(args, id, cam_info, resolution_scale):
     if cam_info.image_path is None:
         return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T,
                   FoVx=cam_info.FovX, FoVy=cam_info.FovY,
-                  image=gt_image, gt_alpha_mask=loaded_mask,
+                  image=None, gt_alpha_mask=None,
                   image_name=cam_info.image_name, uid=id,
                   data_device=args.data_device if not args.load2gpu_on_the_fly else 'cpu', fid=cam_info.fid,
                   depth=cam_info.depth,

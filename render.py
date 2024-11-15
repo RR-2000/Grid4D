@@ -51,9 +51,10 @@ def render_set(model_path, load2gpu_on_the_fly, name, iteration, views, gaussian
         depth = results["depth"]
         depth = depth / (depth.max() + 1e-5)
 
-        gt = view.original_image[0:3, :, :]
+        if view.original_image is not None:
+            gt = view.original_image[0:3, :, :]
+            torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
         torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
-        torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
         torchvision.utils.save_image(depth, os.path.join(depth_path, '{0:05d}'.format(idx) + ".png"))
 
     fps = len(views) / total_time
@@ -288,7 +289,7 @@ def interpolate_view_original(model_path, load2gpt_on_the_fly, name, iteration, 
     imageio.mimwrite(os.path.join(render_path, 'video.mp4'), renderings, fps=30, quality=8)
 
 
-def render_sets(dataset: ModelParams, iteration: int, pipeline: PipelineParams, skip_train: bool, skip_test: bool,
+def render_sets(dataset: ModelParams, iteration: int, pipeline: PipelineParams, skip_train: bool, skip_test: bool, skip_video: bool,
                 mode: str):
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree)
@@ -322,6 +323,11 @@ def render_sets(dataset: ModelParams, iteration: int, pipeline: PipelineParams, 
                         scene.getTestCameras(), gaussians, pipeline,
                         background, deform)
 
+        if not skip_video:
+            render_func(dataset.model_path, dataset.load2gpu_on_the_fly, "video", scene.loaded_iter,
+                        scene.getVideoCameras(), gaussians, pipeline,
+                        background, deform)
+
 
 if __name__ == "__main__":
     # Set up command line argument parser
@@ -332,18 +338,25 @@ if __name__ == "__main__":
     parser.add_argument("--skip_train", action="store_true")
     parser.add_argument('--conf', type=str, default=None)
     parser.add_argument("--skip_test", action="store_true")
+    parser.add_argument("--skip_video", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--mode", default='render', choices=['render', 'time', 'view', 'all', 'pose', 'original'])
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
 
-    if args.conf is not None and os.path.exists(args.conf):
-        print("Find Config:", args.conf)
-        args = merge_config(args, args.conf)
+    # if args.conf is not None and os.path.exists(args.conf):
+    #     print("Find Config:", args.conf)
+    #     args = merge_config(args, args.conf)
+
+    # if args.conf is not None and os.path.exists(args.conf):
+    #     print("Find Config:", args.conf)
+    #     args = merge_config(args, args.conf)
+    # else:
+    #     print("[WARNING] Using default config.")
 
     # Initialize system state (RNG)
     safe_state(args.quiet)
     args.data_device = 'cuda:0' if args.data_device == 'cuda' else args.data_device
     torch.cuda.set_device(args.data_device)
 
-    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.mode)
+    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.skip_video, args.mode)

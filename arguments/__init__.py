@@ -72,7 +72,7 @@ class ModelParams(ParamGroup):
             deform_level_dim=2,
             deform_base_resolution=[8, 8, 8],
             deform_desired_resolution=[32, 32, 16],
-            deform_log2_hashmap_size=19,
+            deform_log2_hashmap_size=24,
 
             bound=1.6,
         )
@@ -131,6 +131,7 @@ class OptimizationParams(ParamGroup):
         self.densify_grad_threshold = 0.0002
         self.disable_ws_prune = False
         self.reg_after_densify = False
+        self.num_workers = 32
         self.data_sample = 'stack'
         super().__init__(parser, "Optimization Parameters")
 

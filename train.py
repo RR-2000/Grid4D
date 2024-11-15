@@ -23,6 +23,7 @@ from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams, merge_config
 import numpy as np
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -66,15 +67,25 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
 
         # Pick a random Camera
         if not viewpoint_stack:
-            viewpoint_stack = scene.getTrainCameras().copy()
+            if dataset.load_image_on_the_fly:
+                viewpoint_stack = scene.getTrainCameras()
+                sampler = RandomSampler(viewpoint_stack, replacement=True, num_samples=opt.iterations)
+                viewpoint_stack_loader = iter(DataLoader(viewpoint_stack, sampler=sampler, batch_size=1, num_workers = opt.num_workers, collate_fn=list))
+            else:
+                viewpoint_stack = scene.getTrainCameras().copy()
+        
+        if not dataset.load_image_on_the_fly:
 
-        if opt.data_sample == 'random':
-            viewpoint_cam = choice(scene.getTrainCameras())
-        elif opt.data_sample == 'order':
-            viewpoint_cam = viewpoint_stack.pop(0)
-        elif opt.data_sample == 'stack':
-            viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack) - 1))
-            
+            if opt.data_sample == 'random':
+                viewpoint_cam = choice(scene.getTrainCameras())
+            elif opt.data_sample == 'order':
+                viewpoint_cam = viewpoint_stack.pop(0)
+            elif opt.data_sample == 'stack':
+                viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack) - 1))
+        else:
+            viewpoint_cam = next(viewpoint_stack_loader)[0]
+
+
         if dataset.load2gpu_on_the_fly:
             viewpoint_cam.load2device()
         fid = viewpoint_cam.fid
@@ -203,10 +214,11 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations
     # Report test and samples of training set
     if iteration in testing_iterations:
         torch.cuda.empty_cache()
-        validation_configs = ({'name': 'test', 'cameras': scene.getTestCameras()},
+        validation_configs = ({'name': 'test', 'cameras': [scene.getTestCameras()[idx % len(scene.getTestCameras())] for idx in
+                                           range(5, 100, 5)]},
                               {'name': 'train',
                                'cameras': [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in
-                                           range(5, 30, 5)]})
+                                           range(5, 100, 5)]})
 
         for config in validation_configs:
             if config['cameras'] and len(config['cameras']) > 0:
@@ -263,8 +275,8 @@ if __name__ == "__main__":
     parser.add_argument('--conf', type=str, default=None)
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int,# default=[])
-                       default=[5000, 6000, 7_000] + list(range(10000, 50001, 1000)))
+    parser.add_argument("--test_iterations", nargs="+", type=int,
+                       default=[5000] + list(range(10000, 50001, 5000))) #default=[5000, 6000, 7_000] + list(range(10000, 50001, 1000)))
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[5000, 10000, 20000, 30000, 40000])
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(sys.argv[1:])

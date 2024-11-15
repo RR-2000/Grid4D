@@ -73,8 +73,17 @@ class Camera(nn.Module):
 
         self.world_view_transform = torch.tensor(getWorld2View2(R, T, trans, scale)).transpose(0, 1).to(
             self.data_device)
-        self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx,
-                                                     fovY=self.FoVy).transpose(0, 1).to(self.data_device)
+        self.projection_matrix = getProjectionMatrix(
+            znear=self.znear,
+            zfar=self.zfar,
+            fovX=self.FoVx,
+            fovY=self.FoVy,
+            K=self.K,
+            img_h=self.image_height,
+            img_w=self.image_width
+        ).transpose(0, 1).to(self.data_device)
+        # getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx,
+        #                                              fovY=self.FoVy).transpose(0, 1).to(self.data_device)
         self.full_proj_transform = (
             self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
         self.camera_center = self.world_view_transform.inverse()[3, :3]
@@ -86,7 +95,8 @@ class Camera(nn.Module):
         self.camera_center = self.world_view_transform.inverse()[3, :3]
 
     def load2device(self, data_device='cuda'):
-        self.original_image = self.original_image.to(data_device)
+        if self.original_image is not None:
+            self.original_image = self.original_image.to(data_device)
         self.world_view_transform = self.world_view_transform.to(data_device)
         self.projection_matrix = self.projection_matrix.to(data_device)
         self.full_proj_transform = self.full_proj_transform.to(data_device)

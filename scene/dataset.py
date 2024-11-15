@@ -89,3 +89,39 @@ class evalDataset(Dataset):
         pred = self.load_image(pred_path)
 
         return gt, pred
+
+
+class evalDataset(Dataset):
+    def __init__(
+        self, model_path
+    ):
+        self.model_path = model_path
+        self.gt_paths = glob.glob(model_path+'/gt/*.png')
+        
+    def __getitem__(self, index):
+
+        gt_path = self.gt_paths[index]
+
+        return self.load_image_pair(gt_path)
+
+    def __len__(self):
+        
+        return len(self.gt_paths)
+
+    def load_image(self, path):
+        try:
+            image = cv.cvtColor(cv.imread(path, cv.IMREAD_UNCHANGED), cv.COLOR_BGRA2RGBA)
+        except:
+            raise FileNotFoundError(f"{path} does not exist")
+
+        return image
+
+    def load_image_pair(self, path):
+    
+        gt_path = path
+        pred_path = path.replace("gt", "renders")
+
+        gt =  self.load_image(gt_path)
+        pred = self.load_image(pred_path)
+
+        return gt, pred

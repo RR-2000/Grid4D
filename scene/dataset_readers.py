@@ -12,10 +12,12 @@
 import os
 import sys
 from PIL import Image
+import torch
 from typing import NamedTuple, Optional
+import torchvision.transforms as transforms
 from scene.colmap_loader import read_extrinsics_text, read_intrinsics_text, qvec2rotmat, \
     read_extrinsics_binary, read_intrinsics_binary, read_points3D_binary, read_points3D_text
-from utils.graphics_utils import getWorld2View2, focal2fov, fov2focal
+from utils.graphics_utils import getWorld2View2, focal2fov, fov2focal,  getProjectionMatrix, ndc2Pix
 import numpy as np
 import json
 import imageio
@@ -28,7 +30,8 @@ from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
-from utils.camera_utils import camera_nerfies_from_JSON
+from utils.camera_utils import camera_nerfies_from_JSON, Intrinsics
+from utils.image_utils import load_img
 from tqdm import tqdm
 from utils.camera_utils_multinerf import generate_interpolated_path
 
@@ -698,7 +701,7 @@ def readBricsSceneInfo(path, num_pts=200_000, white_background=True, start_t=0, 
 
     # init points
     if init == 'hull':
-        first_frame_cameras = [_cam for _cam in train_cam_infos if int(_cam.time*num_t)%100 == 0]
+        first_frame_cameras = [_cam for _cam in train_cam_infos if int(_cam.fid*num_t)%100 == 0]
         aabb = -3.0, 3.0
         grid_resolution = 128
         grid = np.linspace(aabb[0], aabb[1], grid_resolution)
