@@ -119,6 +119,16 @@ class Grid4D(nn.Module):
             log2_hashmap_size=deform_log2_hashmap_size,
             desired_resolution=deform_desired_resolution,
         )
+
+        self.xyzt_encoding = HashEncoder(
+            input_dim=4, 
+            num_levels=deform_num_levels, 
+            level_dim=deform_level_dim,
+            per_level_scale=2,
+            base_resolution=deform_base_resolution[0],
+            log2_hashmap_size=deform_log2_hashmap_size,
+            desired_resolution=deform_desired_resolution[0],
+        )
     
     def encode_spatial(self, xyz):
         return self.xyz_encoding(xyz, size=self.bound)
@@ -132,6 +142,8 @@ class Grid4D(nn.Module):
             self.yzt_encoding(yzt, size=self.bound),
             self.xzt_encoding(xzt, size=self.bound),
         ], dim=-1)
+
+        # h = self.xyzt_encoding(xyzt, size=self.bound)
 
         return h
 
@@ -189,6 +201,7 @@ class DeformNetwork(nn.Module):
                 self.attention_score = spatial_h
                 
         h = self.temporal_mlp(temporal_h) * spatial_h
+        # h = self.temporal_mlp(temporal_h)
 
         h = self.grid_mlp(h)
 
