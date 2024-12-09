@@ -639,6 +639,7 @@ void hash_encode_forward_cuda(const scalar_t *inputs, const scalar_t *embeddings
     switch (D) {
         case 2: kernel_grid_wrapper<scalar_t, 2>(inputs, embeddings, offsets, outputs, B, C, L, per_level_scale, base_resolution, calc_grad_inputs, dy_dx); break;
         case 3: kernel_grid_wrapper<scalar_t, 3>(inputs, embeddings, offsets, outputs, B, C, L, per_level_scale, base_resolution, calc_grad_inputs, dy_dx); break;
+        case 4: kernel_grid_wrapper<scalar_t, 4>(inputs, embeddings, offsets, outputs, B, C, L, per_level_scale, base_resolution, calc_grad_inputs, dy_dx); break;
         default: throw std::runtime_error{"GridEncoding: D must be 2 or 3."};
     }
     
@@ -682,6 +683,7 @@ void hash_encode_backward_cuda(const scalar_t *grad, const scalar_t *inputs, con
     switch (D) {
         case 2: kernel_grid_backward_wrapper<scalar_t, 2>(grad, inputs, embeddings, offsets, grad_embeddings, B, C, L, per_level_scale, base_resolution, calc_grad_inputs, dy_dx, grad_inputs); break;
         case 3: kernel_grid_backward_wrapper<scalar_t, 3>(grad, inputs, embeddings, offsets, grad_embeddings, B, C, L, per_level_scale, base_resolution, calc_grad_inputs, dy_dx, grad_inputs); break;
+        case 4: kernel_grid_backward_wrapper<scalar_t, 4>(grad, inputs, embeddings, offsets, grad_embeddings, B, C, L, per_level_scale, base_resolution, calc_grad_inputs, dy_dx, grad_inputs); break;
         default: throw std::runtime_error{"GridEncoding: D must be 2 or 3."};
     }
 }
@@ -740,6 +742,7 @@ void hash_encode_second_backward_cuda(const scalar_t *grad, const scalar_t *inpu
     switch (D) {
         case 2: kernel_grid_second_backward_wrapper<scalar_t, 2>(grad, inputs, embeddings, offsets, B, C, L, per_level_scale, base_resolution, calc_grad_inputs, dy_dx, grad_grad_inputs, grad_grad, grad2_embeddings); break;
         case 3: kernel_grid_second_backward_wrapper<scalar_t, 3>(grad, inputs, embeddings, offsets, B, C, L, per_level_scale, base_resolution, calc_grad_inputs, dy_dx, grad_grad_inputs, grad_grad, grad2_embeddings); break;
+        case 4: kernel_grid_second_backward_wrapper<scalar_t, 4>(grad, inputs, embeddings, offsets, B, C, L, per_level_scale, base_resolution, calc_grad_inputs, dy_dx, grad_grad_inputs, grad_grad, grad2_embeddings); break;
         default: throw std::runtime_error{"GridEncoding: D must be 2 or 3."};
     }
 }
