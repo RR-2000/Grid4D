@@ -34,7 +34,7 @@ except ImportError:
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations):
     tb_writer, args = prepare_output_and_logger(dataset)
-    gaussians = GaussianModel(dataset.sh_degree)
+    
     deform = DeformModel(
         grid_args=dataset.grid_args, 
         net_args=dataset.network_args,
@@ -48,8 +48,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
     )
     deform.train_setting(opt)
 
+    gaussians = []
+    for i in range(dataset.num_gaussians):
+        gaussians.append(GaussianModel(dataset.sh_degree))
+    
     scene = Scene(dataset, gaussians)
-    gaussians.training_setup(opt)
+
+    for i in range(dataset.num_gaussians):
+        gaussians[i].training_setup(opt)
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -63,7 +69,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
-            gaussians.oneupSHdegree()
+            for i in range(dataset.num_gaussians):
+                gaussians[i].oneupSHdegree()
 
         # Pick a random Camera
         if not viewpoint_stack:
@@ -89,6 +96,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
         if dataset.load2gpu_on_the_fly:
             viewpoint_cam.load2device()
         fid = viewpoint_cam.fid
+        gaussian_id = int(fid*dataset.num_gaussians)
 
         # deformation and regularization
         reg = 0.0
@@ -96,9 +104,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
             d_rotation, d_scaling = 0.0, 0.0
             d_xyz = 0.0
         else:
-            N = gaussians.get_xyz.shape[0]
+            N = gaussians[gaussian_id].get_xyz.shape[0]
             time_input = fid.unsqueeze(0).expand(N, -1)
-            xyz = gaussians.get_xyz.detach()
+            xyz = gaussians[gaussian_id].get_xyz.detach()
             deform_pkgs = deform.step(xyz, time_input)
             d_xyz, d_rotation, d_scaling = deform_pkgs['d_xyz'], deform_pkgs['d_rotation'], deform_pkgs['d_scaling']
 
@@ -109,7 +117,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
 
 
         # Render
-        render_pkg_re = render(viewpoint_cam, gaussians, pipe, background, d_xyz, d_rotation, d_scaling)
+        render_pkg_re = render(viewpoint_cam, gaussians[gaussian_id], pipe, background, d_xyz, d_rotation, d_scaling)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg_re["render"], render_pkg_re[
             "viewspace_points"], render_pkg_re["visibility_filter"], render_pkg_re["radii"]
 
@@ -128,7 +136,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
             if iteration % 10 == 0:
                 progress_bar.set_postfix({
                     "Loss": f"{ema_loss_for_log:.{7}f}",
-                    "pts": len(gaussians.get_xyz),
+                    "pts": len(gaussians[gaussian_id].get_xyz),
                     "reg": f"{reg:.{5}f}",
                 })
                 progress_bar.update(10)
@@ -136,7 +144,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                 progress_bar.close()
 
             # Keep track of max radii in image-space for pruning
-            gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter],
+            gaussians[gaussian_id].max_radii2D[visibility_filter] = torch.max(gaussians[gaussian_id].max_radii2D[visibility_filter],
                                                                  radii[visibility_filter])
 
             # Log and save
@@ -159,22 +167,22 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
 
             # Densification
             if iteration < opt.densify_until_iter:
-                gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
+                gaussians[gaussian_id].add_densification_stats(viewspace_point_tensor, visibility_filter)
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                    gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, opt.disable_ws_prune)
+                    gaussians[gaussian_id].densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, opt.disable_ws_prune)
 
                 if iteration % opt.opacity_reset_interval == 0 or (
                         dataset.white_background and iteration == opt.densify_from_iter):
-                    gaussians.reset_opacity()
+                    gaussians[gaussian_id].reset_opacity()
 
             # Optimizer step
             if iteration < opt.iterations:
-                gaussians.optimizer.step()
-                gaussians.update_learning_rate(iteration)
+                gaussians[gaussian_id].optimizer.step()
+                gaussians[gaussian_id].update_learning_rate(iteration)
                 deform.optimizer.step()
-                gaussians.optimizer.zero_grad(set_to_none=True)
+                gaussians[gaussian_id].optimizer.zero_grad(set_to_none=True)
                 deform.optimizer.zero_grad()
                 deform.update_learning_rate(iteration)
 
@@ -228,12 +236,13 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations
                     if load2gpu_on_the_fly:
                         viewpoint.load2device()
                     fid = viewpoint.fid
-                    xyz = scene.gaussians.get_xyz
+                    gaussian_id = int(fid*len(scene.gaussians))
+                    xyz = scene.gaussians[gaussian_id].get_xyz
                     time_input = fid.unsqueeze(0).expand(xyz.shape[0], -1)
                     deform_pkgs = deform.step(xyz.detach(), time_input)
                     d_xyz, d_rotation, d_scaling = deform_pkgs['d_xyz'], deform_pkgs['d_rotation'], deform_pkgs['d_scaling']
                     image = torch.clamp(
-                        renderFunc(viewpoint, scene.gaussians, *renderArgs, d_xyz, d_rotation, d_scaling)["render"],
+                        renderFunc(viewpoint, scene.gaussians[gaussian_id], *renderArgs, d_xyz, d_rotation, d_scaling)["render"],
                         0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
 
@@ -258,8 +267,8 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - psnr', psnr_test, iteration)
 
         if tb_writer:
-            tb_writer.add_histogram("scene/opacity_histogram", scene.gaussians.get_opacity, iteration)
-            tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
+            tb_writer.add_histogram("scene/opacity_histogram", scene.gaussians[0].get_opacity, iteration)
+            tb_writer.add_scalar('total_points', scene.gaussians[0].get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
 
     return test_psnr

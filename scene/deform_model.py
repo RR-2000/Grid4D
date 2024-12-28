@@ -23,6 +23,7 @@ class DeformModel:
         self.grid4d = Grid4D(**grid_args).cuda()
         self.spatial_dim = self.grid4d.canonical_level_dim * self.grid4d.canonical_num_levels
         self.temporal_dim = self.grid4d.deform_level_dim * self.grid4d.deform_num_levels * 3
+        # self.temporal_dim = self.grid4d.deform_level_dim * self.grid4d.deform_num_levels
         self.deform = DeformNetwork(spatial_in_dim=self.spatial_dim, temporal_in_dim=self.temporal_dim, **net_args).cuda()
 
         self.optimizer = None

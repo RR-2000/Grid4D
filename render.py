@@ -25,7 +25,7 @@ import imageio
 import numpy as np
 import time
 
-def render_set(model_path, load2gpu_on_the_fly, name, iteration, views, gaussians, pipeline, background, deform):
+def render_set(model_path, load2gpu_on_the_fly, name, iteration, views, gaussians, pipeline, background, deform, start_t, num_t):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
     depth_path = os.path.join(model_path, name, "ours_{}".format(iteration), "depth")
@@ -37,15 +37,19 @@ def render_set(model_path, load2gpu_on_the_fly, name, iteration, views, gaussian
     total_time = 0.0
 
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
+        # if (idx+start_t) % 20 != 0:
+        #     continue
         if load2gpu_on_the_fly:
             view.load2device()
         fid = view.fid
-        xyz = gaussians.get_xyz
+        gaussian_id = int(fid*len(gaussians))
+        # fid = view.fid * num_t/200 + start_t/200
+        xyz = gaussians[gaussian_id].get_xyz
         time_input = fid.unsqueeze(0).expand(xyz.shape[0], -1)
         t = time.time()
-        deform_pkgs = deform.step(xyz.detach(), time_input, fixed_attention=True)
+        deform_pkgs = deform.step(xyz.detach(), time_input, fixed_attention=False)
         d_xyz, d_rotation, d_scaling = deform_pkgs['d_xyz'], deform_pkgs['d_rotation'], deform_pkgs['d_scaling']
-        results = render(view, gaussians, pipeline, background, d_xyz, d_rotation, d_scaling)
+        results = render(view, gaussians[gaussian_id], pipeline, background, d_xyz, d_rotation, d_scaling)
         total_time += time.time() - t
         rendering = results["render"]
         depth = results["depth"]
@@ -292,7 +296,9 @@ def interpolate_view_original(model_path, load2gpt_on_the_fly, name, iteration, 
 def render_sets(dataset: ModelParams, iteration: int, pipeline: PipelineParams, skip_train: bool, skip_test: bool, skip_video: bool,
                 mode: str):
     with torch.no_grad():
-        gaussians = GaussianModel(dataset.sh_degree)
+        gaussians = []
+        for i in range(dataset.num_gaussians):
+            gaussians.append(GaussianModel(dataset.sh_degree))
         scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
         deform = DeformModel(dataset.grid_args, dataset.network_args, scale_xyz=dataset.scale_xyz, reg_spatial_able=False, reg_temporal_able=False)
         deform.load_weights(dataset.model_path, iteration=iteration)
@@ -316,17 +322,17 @@ def render_sets(dataset: ModelParams, iteration: int, pipeline: PipelineParams, 
         if not skip_train:
             render_func(dataset.model_path, dataset.load2gpu_on_the_fly, "train", scene.loaded_iter,
                         scene.getTrainCameras(), gaussians, pipeline,
-                        background, deform)
+                        background, deform, start_t = dataset.start_t, num_t = dataset.num_t)
 
         if not skip_test:
             render_func(dataset.model_path, dataset.load2gpu_on_the_fly, "test", scene.loaded_iter,
                         scene.getTestCameras(), gaussians, pipeline,
-                        background, deform)
+                        background, deform, start_t = dataset.start_t, num_t = dataset.num_t)
 
         if not skip_video:
             render_func(dataset.model_path, dataset.load2gpu_on_the_fly, "video", scene.loaded_iter,
                         scene.getVideoCameras(), gaussians, pipeline,
-                        background, deform)
+                        background, deform, start_t = dataset.start_t, num_t = dataset.num_t)
 
 
 if __name__ == "__main__":

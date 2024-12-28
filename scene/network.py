@@ -120,15 +120,15 @@ class Grid4D(nn.Module):
             desired_resolution=deform_desired_resolution,
         )
 
-        self.xyzt_encoding = HashEncoder(
-            input_dim=4, 
-            num_levels=deform_num_levels, 
-            level_dim=deform_level_dim,
-            per_level_scale=2,
-            base_resolution=deform_base_resolution[0],
-            log2_hashmap_size=deform_log2_hashmap_size,
-            desired_resolution=deform_desired_resolution[0],
-        )
+        # self.xyzt_encoding = HashEncoder(
+        #     input_dim=4, 
+        #     num_levels=deform_num_levels, 
+        #     level_dim=deform_level_dim,
+        #     per_level_scale=2,
+        #     base_resolution=deform_base_resolution[0],
+        #     log2_hashmap_size=deform_log2_hashmap_size,
+        #     desired_resolution=deform_desired_resolution[0],
+        # )
     
     def encode_spatial(self, xyz):
         return self.xyz_encoding(xyz, size=self.bound)

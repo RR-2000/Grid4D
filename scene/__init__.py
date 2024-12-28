@@ -32,6 +32,7 @@ class Scene:
         """
         self.model_path = args.model_path
         self.loaded_iter = None
+        self.num_gaussians = len(gaussians)
         self.gaussians = gaussians
 
         if load_iteration:
@@ -116,13 +117,15 @@ class Scene:
                                                                            args)
 
         if self.loaded_iter:
-            self.gaussians.load_ply(os.path.join(self.model_path,
-                                                 "point_cloud",
-                                                 "iteration_" + str(self.loaded_iter),
-                                                 "point_cloud.ply"),
-                                    og_number_points=len(scene_info.point_cloud.points))
+            for i in range(self.num_gaussians):
+                self.gaussians[i].load_ply(os.path.join(self.model_path,
+                                                    "point_cloud",
+                                                    "iteration_" + str(self.loaded_iter),
+                                                    f"point_cloud_{i}.ply"),
+                                        og_number_points=len(scene_info.point_cloud.points))
         else:
-            self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent)
+            for i in range(self.num_gaussians):
+                self.gaussians[i].create_from_pcd(scene_info.point_cloud, self.cameras_extent)
         print("Train camera:", len(self.getTrainCameras()), "Test camera:", len(self.getTestCameras()))
 
     def save(self, iteration, is_best=False):
@@ -133,7 +136,8 @@ class Scene:
                 f.write("Best iter: {}".format(iteration))
         else:
             point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
-        self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
+        for i in range(self.num_gaussians):
+            self.gaussians[i].save_ply(os.path.join(point_cloud_path, f"point_cloud_{i}.ply"))
 
     def getTrainCameras(self, scale=1.0):
         return self.train_cameras[scale]
