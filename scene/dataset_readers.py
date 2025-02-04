@@ -815,6 +815,53 @@ def readBricsSceneInfo(path, num_pts=200_000, white_background=True, start_t=0, 
                            )
     return scene_info
 
+
+def format_infos(dataset,split):
+    # loading
+    cameras = []
+    image = dataset[0].image
+    # if split == "train":
+    for idx in tqdm(range(len(dataset))):
+        image_path = None
+        image_name = f"{idx}"
+        time = dataset.image_times[idx]
+        # matrix = np.linalg.inv(np.array(pose))
+        R,T = dataset.load_pose(idx)
+        if hasattr(dataset, "focal"):
+            FovX = focal2fov(dataset.focal[0], image.shape[1])
+            FovY = focal2fov(dataset.focal[0], image.shape[2])
+        elif hasattr(dataset, "FovX") and hasattr(dataset, "FovY"):
+            FovX = dataset.FovX
+            FovY = dataset.FovY
+        else:
+            raise ValueError("No focal length or FovX and FovY found")
+        cameras.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
+                            image_path=image_path, image_name=image_name, width=image.shape[2], height=image.shape[1],
+                            fid = time, mask=None, white_background = True, K=None)) #TODO
+
+    return cameras
+
+def readEgooodSceneInfo(datadir, use_bg_points, load_image_on_the_fly = False, start_t=2520, num_t=3840-2520):
+    from scene.egoood_dataset import EgoOodDataset
+    train_dataset = EgoOodDataset(datadir, start_frame = start_t, end_frame = start_t+ num_t, split='train', load_image_on_the_fly = load_image_on_the_fly)
+    test_dataset = EgoOodDataset(datadir, start_frame = start_t, end_frame = start_t+ num_t, split='test', load_image_on_the_fly = load_image_on_the_fly)
+
+    # train_cam_infos = format_infos(train_dataset,"train")
+    nerf_normalization = getNerfppNorm(train_dataset) #I don't think it will be used
+    # nerf_normalization = None
+    ply_path  = os.path.join(datadir, 'pcd/egoseq/start-2520_dense_downsample.ply')
+    pcd = fetchPly(ply_path)
+    print("Origin points", pcd.points.shape[0])
+
+    scene_info = SceneInfo(point_cloud=pcd,
+                            train_cameras=train_dataset,
+                            test_cameras=test_dataset,
+                            video_cameras=None, #TODO
+                            ply_path=ply_path,
+                            nerf_normalization=nerf_normalization
+                            )
+    return scene_info
+
 sceneLoadTypeCallbacks = {
     "Colmap": readColmapSceneInfo,  # colmap dataset reader from official 3D Gaussian [https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/]
     "Blender": readNerfSyntheticInfo,  # D-NeRF dataset [https://drive.google.com/file/d/1uHVyApwqugXTFuIRRlE4abTW8_rrVeIK/view?usp=sharing]
@@ -822,4 +869,5 @@ sceneLoadTypeCallbacks = {
     "nerfies": readNerfiesInfo,  # NeRFies & HyperNeRF dataset proposed by [https://github.com/google/hypernerf/releases/tag/v0.1]
     "plenopticVideo": readPlenopticVideoDataset,  # Neural 3D dataset in [https://github.com/facebookresearch/Neural_3D_Video]
     "Brics": readBricsSceneInfo,
+    "EgoOod": readEgooodSceneInfo,
 }

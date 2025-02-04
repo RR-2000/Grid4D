@@ -82,7 +82,7 @@ class ModelParams(ParamGroup):
             directional=True,
         )
         self.scale_xyz = 1.0
-        self.num_gaussians = 4
+        self.num_gaussians = 1
         
 
         super().__init__(parser, "Loading Parameters", sentinel)
@@ -103,7 +103,7 @@ class PipelineParams(ParamGroup):
 
 class OptimizationParams(ParamGroup):
     def __init__(self, parser):
-        self.iterations = 150_000
+        self.iterations = 50_000
         self.warm_up = 3_000
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016

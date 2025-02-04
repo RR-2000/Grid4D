@@ -1,6 +1,7 @@
 from torch.utils.data import Dataset
 from scene.cameras import Camera
 import numpy as np
+import copy
 import cv2 as cv
 import glob
 from utils.general_utils import PILtoTorch
@@ -50,6 +51,30 @@ class FourDGSdataset(Dataset):
                 return loadCam(self.args, index, caminfo, self.resolution_scale)
         else:
             return self.dataset[index]
+    def __len__(self):
+        
+        return len(self.dataset)
+
+
+class EgoLoading(Dataset):
+    def __init__(
+        self,
+        dataset,
+        args,
+        dataset_type,
+        resolution_scale = 1
+    ):
+        self.dataset = dataset
+        self.args = args
+        self.dataset_type=dataset_type
+        self.resolution_scale = resolution_scale
+
+    def __getitem__(self, index):
+        # breakpoint()
+        caminfo = self.dataset[index]
+        # return loadCam(self.args, index, caminfo, self.resolution_scale)
+        return caminfo
+        
     def __len__(self):
         
         return len(self.dataset)

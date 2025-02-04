@@ -15,7 +15,7 @@ import json
 import numpy as np
 from utils.system_utils import searchForMaxIteration
 from scene.dataset_readers import sceneLoadTypeCallbacks
-from scene.dataset import FourDGSdataset
+from scene.dataset import FourDGSdataset, EgoLoading
 from scene.gaussian_model import GaussianModel
 from scene.deform_model import DeformModel
 from arguments import ModelParams
@@ -58,6 +58,9 @@ class Scene:
                 load_image_on_the_fly = args.load_image_on_the_fly,
             )
             dataset_type="brics"
+        elif os.path.exists(os.path.join(args.source_path, "pcd")):
+            scene_info = sceneLoadTypeCallbacks["EgoOod"](args.source_path, args.white_background)
+            dataset_type="EgoOod"
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
             print("Found transforms_train.json file, assuming Blender data set!")
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval)
@@ -91,7 +94,7 @@ class Scene:
             with open(os.path.join(self.model_path, "cameras.json"), 'w') as file:
                 json.dump(json_cams, file)
 
-        if shuffle:
+        if shuffle and type(scene_info.train_cameras) == list:
             random.shuffle(scene_info.train_cameras)  # Multi-res consistent random shuffling
             random.shuffle(scene_info.test_cameras)  # Multi-res consistent random shuffling
 
@@ -100,20 +103,27 @@ class Scene:
         print("Point bound:", np.max(scene_info.point_cloud.points, axis=0), "<->", np.min(scene_info.point_cloud.points, axis=0))
 
         for resolution_scale in resolution_scales:
-            # print("Loading Training Cameras")
-            # self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale,
-            #                                                                 args)
-            # print("Loading Test Cameras")
-            # self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale,
-            #                                                                args)
+            if dataset_type == "EgoOod":
+
+                print("Loading Training Cameras")
+                self.train_cameras[resolution_scale] = EgoLoading(scene_info.train_cameras, args, dataset_type, resolution_scale)
+
+                print("Loading Test Cameras")
+                self.test_cameras[resolution_scale] = EgoLoading(scene_info.test_cameras, args, dataset_type, resolution_scale)
+
+                print("Loading Video Cameras")
+                self.video_cameras[resolution_scale] = EgoLoading(scene_info.video_cameras, args, dataset_type, resolution_scale)
+
+                continue
+            
             print("Loading Training Cameras")
-            self.train_cameras[resolution_scale] = FourDGSdataset(scene_info.train_cameras, args, dataset_type, resolution_scale) if args.load_image_on_the_fly else ameraList_from_camInfos(scene_info.train_cameras, resolution_scale,
+            self.train_cameras[resolution_scale] = FourDGSdataset(scene_info.train_cameras, args, dataset_type, resolution_scale) if args.load_image_on_the_fly else cameraList_from_camInfos(scene_info.train_cameras, resolution_scale,
                                                                             args)
             print("Loading Test Cameras")
-            self.test_cameras[resolution_scale] = FourDGSdataset(scene_info.test_cameras, args, dataset_type, resolution_scale) if args.load_image_on_the_fly else ameraList_from_camInfos(scene_info.test_cameras, resolution_scale,
+            self.test_cameras[resolution_scale] = FourDGSdataset(scene_info.test_cameras, args, dataset_type, resolution_scale) if args.load_image_on_the_fly else cameraList_from_camInfos(scene_info.test_cameras, resolution_scale,
                                                                            args)
             print("Loading Video Cameras")
-            self.video_cameras[resolution_scale] = FourDGSdataset(scene_info.video_cameras, args, dataset_type, resolution_scale) if args.load_image_on_the_fly else ameraList_from_camInfos(scene_info.video_cameras, resolution_scale,
+            self.video_cameras[resolution_scale] = FourDGSdataset(scene_info.video_cameras, args, dataset_type, resolution_scale) if args.load_image_on_the_fly else cameraList_from_camInfos(scene_info.video_cameras, resolution_scale,
                                                                            args)
 
         if self.loaded_iter:

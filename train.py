@@ -14,6 +14,8 @@ import torch
 from random import randint, choice
 from utils.loss_utils import l1_loss, ssim, kl_divergence
 from gaussian_renderer import render, network_gui
+from scene.dataset_readers import CameraInfo
+from utils.camera_utils import loadCam
 import sys
 from scene import Scene, GaussianModel, DeformModel
 from utils.general_utils import safe_state, quaternion_to_matrix
@@ -24,6 +26,7 @@ from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams, merge_config
 import numpy as np
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+import torchvision
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -91,6 +94,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
                 viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack) - 1))
         else:
             viewpoint_cam = next(viewpoint_stack_loader)[0]
+            if isinstance(viewpoint, CameraInfo):
+                viewpoint_cam = loadCam(viewpoint_stack.args, 0, viewpoint_cam, viewpoint_stack.resolution_scale)
 
 
         if dataset.load2gpu_on_the_fly:
@@ -229,10 +234,15 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations
                                            range(5, 100, 5)]})
 
         for config in validation_configs:
+            render_path = f'bike/{config["name"]}'
+            os.makedirs(render_path, exist_ok=True)
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = []
                 psnr_test = []
                 for idx, viewpoint in enumerate(config['cameras']):
+                    
+                    if isinstance(viewpoint, CameraInfo):
+                        viewpoint = loadCam(scene.getTestCameras().args, 0, viewpoint, scene.getTestCameras().resolution_scale)
                     if load2gpu_on_the_fly:
                         viewpoint.load2device()
                     fid = viewpoint.fid
@@ -254,6 +264,8 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations
                         if iteration == testing_iterations[0]:
                             tb_writer.add_images(config['name'] + "_view_{}/ground_truth".format(viewpoint.image_name),
                                                  gt_image[None], global_step=iteration)
+
+                    torchvision.utils.save_image(image, os.path.join(render_path, viewpoint.image_name + ".png"))
                     l1_test.append(l1_loss(image, gt_image).mean().item())
                     psnr_test.append(psnr(image, gt_image).mean().item())
 
@@ -286,7 +298,7 @@ if __name__ == "__main__":
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--test_iterations", nargs="+", type=int,
                        default=[5000] + list(range(10000, 50001, 5000))) #default=[5000, 6000, 7_000] + list(range(10000, 50001, 1000)))
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[5000, 10000, 20000, 30000, 40000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[3000, 5000, 10000, 20000, 30000, 40000])
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)

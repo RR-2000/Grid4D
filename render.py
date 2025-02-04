@@ -18,6 +18,8 @@ from gaussian_renderer import render
 import torchvision
 from utils.general_utils import safe_state
 from utils.pose_utils import pose_spherical, render_wander_path
+from scene.dataset_readers import CameraInfo
+from utils.camera_utils import loadCam
 from argparse import ArgumentParser
 from arguments import ModelParams, PipelineParams, get_combined_args, merge_config
 from gaussian_renderer import GaussianModel
@@ -39,6 +41,8 @@ def render_set(model_path, load2gpu_on_the_fly, name, iteration, views, gaussian
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
         # if (idx+start_t) % 20 != 0:
         #     continue
+        if isinstance(view, CameraInfo):
+            view = loadCam(views.args, 0, view, views.resolution_scale)
         if load2gpu_on_the_fly:
             view.load2device()
         fid = view.fid
@@ -57,9 +61,12 @@ def render_set(model_path, load2gpu_on_the_fly, name, iteration, views, gaussian
 
         if view.original_image is not None:
             gt = view.original_image[0:3, :, :]
-            torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
-        torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
-        torchvision.utils.save_image(depth, os.path.join(depth_path, '{0:05d}'.format(idx) + ".png"))
+            # torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
+            torchvision.utils.save_image(gt, os.path.join(gts_path, view.image_name + ".png"))
+        # torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
+        # torchvision.utils.save_image(depth, os.path.join(depth_path, '{0:05d}'.format(idx) + ".png"))
+        torchvision.utils.save_image(rendering, os.path.join(render_path, view.image_name + ".png"))
+        torchvision.utils.save_image(depth, os.path.join(depth_path, view.image_name + ".png"))
 
     fps = len(views) / total_time
     print("FPS:", fps)
